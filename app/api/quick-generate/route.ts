@@ -131,7 +131,7 @@ export async function POST(req: Request) {
         const gemini = await getGeminiClient();
         const model = gemini.getGenerativeModel({
           model: GEMINI_MODEL_ID,
-          generationConfig: { maxOutputTokens: 65535, temperature: 0.2 },
+          generationConfig: { maxOutputTokens: 100000, temperature: 0.2 },
           systemInstruction: { role: "system", parts: [{ text: QUICK_GENERATE_SYSTEM_PROMPT }] },
         });
 

@@ -73,7 +73,7 @@ Domain: **shadow-oss.info** (registered on Namecheap, hosted on Vercel)
 │   GitHub      │        │  GCP Vertex AI (us-central1)                  │
 │               │        │                                                │
 │  Public repo  │        │  Model: gemini-2.5-flash-lite                 │
-│  clone via    │        │  Max output: 65535 tokens                     │
+│  clone via    │        │  Max output: 100000 tokens                     │
 │  Repomix      │        │  Temperature: 0.2                             │
 │               │        │  Streaming: generateContentStream()           │
 └───────────────┘        │                                                │
@@ -168,7 +168,7 @@ const gemini = new VertexAI({
 
 const model = gemini.getGenerativeModel({
   model: "gemini-2.5-flash-lite",
-  generationConfig: { maxOutputTokens: 65535, temperature: 0.2 },
+  generationConfig: { maxOutputTokens: 100000, temperature: 0.2 },
   systemInstruction: { role: "system", parts: [{ text: systemPrompt }] },
 });
 
@@ -247,7 +247,7 @@ GOOGLE_CLOUD_GEMINI_REGION=us-central1
 
 ### **Model**
 
-`gemini-2.5-flash-lite` — fast, cheap, handles large context well. `maxOutputTokens: 65535` (note: the API range is exclusive, so 65536 is rejected).
+`gemini-2.5-flash-lite` — fast, cheap, handles large context well. `maxOutputTokens: 100000`.
 
 ---
 
