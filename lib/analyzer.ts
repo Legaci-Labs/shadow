@@ -35,9 +35,83 @@ export interface RepoAnalysis {
   };
 }
 
+/**
+ * Extract just the directory tree + key config/manifest files from the full
+ * repomix markdown. This is ~5-10% of the full size — enough for analysis,
+ * way faster for the LLM.
+ */
+const KEY_FILE_PATTERNS = [
+  /readme/i,
+  /package\.json$/,
+  /cargo\.toml$/,
+  /pyproject\.toml$/,
+  /go\.mod$/,
+  /requirements\.txt$/,
+  /setup\.py$/,
+  /setup\.cfg$/,
+  /gemfile$/i,
+  /\.csproj$/,
+  /pom\.xml$/,
+  /build\.gradle/,
+  /makefile$/i,
+  /dockerfile$/i,
+  /docker-compose/i,
+  /\.env\.example$/,
+  /tsconfig\.json$/,
+  /next\.config/,
+  /vite\.config/,
+  /webpack\.config/,
+];
+
+function extractAnalysisContext(repoMarkdown: string): string {
+  const parts: string[] = [];
+
+  // 1. Extract directory tree (between "Directory Structure" and "File Contents")
+  const treeMatch = repoMarkdown.match(
+    /(?:## (?:Directory Structure|Repository Structure|File Summary)[\s\S]*?)(?=## File Contents|$)/i
+  );
+  if (treeMatch) {
+    parts.push(treeMatch[0].slice(0, 10_000)); // cap tree at 10K chars
+  }
+
+  // 2. Extract key config/manifest files
+  // Repomix format: "## File: path/to/file" followed by content until next "## File:"
+  const fileBlocks = repoMarkdown.split(/(?=^## File: )/m);
+  for (const block of fileBlocks) {
+    const pathMatch = block.match(/^## File: (.+)/);
+    if (!pathMatch) continue;
+    const filePath = pathMatch[1].trim();
+    if (KEY_FILE_PATTERNS.some((p) => p.test(filePath))) {
+      parts.push(block.slice(0, 5_000)); // cap each key file at 5K
+    }
+  }
+
+  // 3. Also try alternative repomix format: "File: path/to/file" with backtick blocks
+  if (parts.length <= 1) {
+    const altBlocks = repoMarkdown.split(/(?=^File: )/m);
+    for (const block of altBlocks) {
+      const pathMatch = block.match(/^File: (.+)/);
+      if (!pathMatch) continue;
+      const filePath = pathMatch[1].trim();
+      if (KEY_FILE_PATTERNS.some((p) => p.test(filePath))) {
+        parts.push(block.slice(0, 5_000));
+      }
+    }
+  }
+
+  // If we couldn't parse the structure, fall back to first 20K chars
+  if (parts.length === 0) {
+    return repoMarkdown.slice(0, 20_000);
+  }
+
+  return parts.join("\n\n");
+}
+
 export async function analyzeRepo(
   repoMarkdown: string
 ): Promise<RepoAnalysis> {
+  const context = extractAnalysisContext(repoMarkdown);
+
   const gemini = await getGeminiClient();
   const model = gemini.getGenerativeModel({
     model: GEMINI_MODEL_ID,
@@ -48,7 +122,7 @@ export async function analyzeRepo(
   const result = await model.generateContent({
     contents: [{
       role: "user",
-      parts: [{ text: `Here is a GitHub repository converted to structured markdown by Repomix:\n\n---BEGIN REPO MARKDOWN---\n${repoMarkdown}\n---END REPO MARKDOWN---\n\nAnalyze this repository and generate clarifying questions for skill file generation.` }],
+      parts: [{ text: `Here is a GitHub repository structure and key configuration files:\n\n---BEGIN REPO CONTEXT---\n${context}\n---END REPO CONTEXT---\n\nAnalyze this repository and generate clarifying questions for skill file generation.` }],
     }],
   });
 
