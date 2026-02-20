@@ -114,7 +114,7 @@ async function streamGenerateGemini(
   const gemini = await getGeminiClient();
   const model = gemini.getGenerativeModel({
     model: FALLBACK_MODEL_ID,
-    generationConfig: { maxOutputTokens: 65536, temperature: 0.2 },
+    generationConfig: { maxOutputTokens: 65535, temperature: 0.2 },
     systemInstruction: { role: "system", parts: [{ text: system }] },
   });
 
