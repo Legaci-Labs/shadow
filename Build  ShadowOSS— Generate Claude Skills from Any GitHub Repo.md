@@ -21,6 +21,136 @@ Domain: **shadow-oss.info** (registered on Namecheap, hosted on Vercel)
 
 ---
 
+## **System Architecture**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Browser (React 19)                                                         │
+│                                                                             │
+│  ┌──────────┐    POST /api/quick-generate    ┌──────────────────────────┐   │
+│  │ RepoInput│──────────{ repoUrl }──────────▶│  SSE EventSource         │   │
+│  └──────────┘                                │                          │   │
+│       │                                      │  event: status  ──▶ UI   │   │
+│  ┌────▼─────┐                                │  event: chunk   ──▶ Live │   │
+│  │ Example  │                                │  event: complete ──▶ Done│   │
+│  │ Repos    │                                │  event: error   ──▶ Err  │   │
+│  └──────────┘                                └──────────────────────────┘   │
+│                                                         │                   │
+│                                              ┌──────────▼──────────┐        │
+│                                              │   SkillPreview      │        │
+│                                              │  ┌────────┬───────┐ │        │
+│                                              │  │FileTree│Preview│ │        │
+│                                              │  └────────┴───────┘ │        │
+│                                              │  [Copy] [ZIP] [Reset│        │
+│                                              └─────────────────────┘        │
+└─────────────────────────────────────────────────────────────────────────────┘
+        │
+        │ HTTPS POST (SSE response)
+        ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Vercel Serverless (Next.js App Router)          maxDuration: 300s          │
+│                                                                             │
+│  ┌─────────────┐     ┌──────────────────────────────────────────────────┐   │
+│  │ Rate Limiter │────▶│  POST /api/quick-generate/route.ts              │   │
+│  │ 5 req/min/IP│     │                                                  │   │
+│  └─────────────┘     │  1. Validate GitHub URL                          │   │
+│                      │  2. Repomix: clone repo → structured markdown    │   │
+│                      │  3. Strip base64, truncate to 120K tokens        │   │
+│                      │  4. Stream to Gemini via Vertex AI               │   │
+│                      │  5. Parse JSON (with truncation repair fallback) │   │
+│                      │  6. SSE events back to client                    │   │
+│                      │                                                  │   │
+│                      │  ┌────────────────────────────────┐              │   │
+│                      │  │ Heartbeat: `: keepalive\n\n`   │              │   │
+│                      │  │ every 10s (prevents idle kill)  │              │   │
+│                      │  └────────────────────────────────┘              │   │
+│                      └──────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+        │                              │
+        │ git clone (temp dir)         │ gRPC streaming
+        ▼                              ▼
+┌───────────────┐        ┌────────────────────────────────────────────────┐
+│   GitHub      │        │  GCP Vertex AI (us-central1)                  │
+│               │        │                                                │
+│  Public repo  │        │  Model: gemini-2.5-flash-lite                 │
+│  clone via    │        │  Max output: 65535 tokens                     │
+│  Repomix      │        │  Temperature: 0.2                             │
+│               │        │  Streaming: generateContentStream()           │
+└───────────────┘        │                                                │
+                         │  Auth: Vercel OIDC → WIF → SA impersonation   │
+                         └────────────────────────────────────────────────┘
+                                        │
+                                        │ Token exchange flow
+                                        ▼
+                         ┌────────────────────────────────────────────────┐
+                         │  GCP IAM                                       │
+                         │                                                │
+                         │  1. Vercel OIDC JWT                            │
+                         │     ──▶ sts.googleapis.com/v1/token            │
+                         │     ──▶ Federated access token                 │
+                         │                                                │
+                         │  2. Federated token                            │
+                         │     ──▶ iamcredentials.googleapis.com          │
+                         │     ──▶ generateAccessToken                    │
+                         │     ──▶ GCP access token                      │
+                         │                                                │
+                         │  Pool: vercel / Provider: vercel               │
+                         │  SA: shadowoss-vercel@shadowoss.iam            │
+                         └────────────────────────────────────────────────┘
+```
+
+### **Request Lifecycle**
+
+```
+User pastes URL
+    │
+    ▼
+RepoInput validates (client-side regex)
+    │
+    ▼
+POST /api/quick-generate ─── rate limit check (429 if exceeded)
+    │
+    ▼
+SSE stream opens ─── heartbeat timer starts (10s interval)
+    │
+    ├──▶ status: "Cloning repository..."
+    │       │
+    │       ▼
+    │    Repomix: git clone → temp dir → markdown → cleanup
+    │       │
+    │       ▼
+    │    Strip base64 blobs, truncate if > 120K tokens
+    │
+    ├──▶ status: "Packed N files into M tokens"
+    │
+    ├──▶ status: "Zapping some code..."
+    │       │
+    │       ▼
+    │    Vertex AI auth (OIDC → STS → impersonate → access token)
+    │       │
+    │       ▼
+    │    Gemini generateContentStream()
+    │       │
+    │       ▼
+    │    for await (chunk of stream) ──▶ event: chunk { text }
+    │
+    ├──▶ Parse full text as JSON
+    │       │
+    │       ├── Success ──▶ event: complete { files, metadata }
+    │       │
+    │       ├── JSON error ──▶ strip markdown fences, retry parse
+    │       │
+    │       └── Still fails ──▶ repairTruncatedJson() regex recovery
+    │               │
+    │               ├── Recovered ──▶ event: complete { files, metadata }
+    │               └── Failed ──▶ event: error { message }
+    │
+    ▼
+SSE stream closes ─── heartbeat timer cleared
+```
+
+---
+
 ## **GCP Vertex AI Configuration**
 
 ### **SDK Setup**
