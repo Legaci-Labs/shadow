@@ -23,6 +23,18 @@ function sendEvent(
   );
 }
 
+/** Send SSE keepalive comments every 10s to prevent Vercel idle timeout */
+function startHeartbeat(controller: ReadableStreamDefaultController): NodeJS.Timeout {
+  const encoder = new TextEncoder();
+  return setInterval(() => {
+    try {
+      controller.enqueue(encoder.encode(": keepalive\n\n"));
+    } catch {
+      // controller closed
+    }
+  }, 10_000);
+}
+
 export async function POST(req: Request) {
   const { repoUrl } = await req.json();
 
@@ -35,6 +47,7 @@ export async function POST(req: Request) {
 
   const stream = new ReadableStream({
     async start(controller) {
+      const heartbeat = startHeartbeat(controller);
       try {
         // Step 1: Clone + Repomix
         sendEvent(controller, "status", { stage: "cloning", message: "Cloning repository..." });
@@ -94,6 +107,8 @@ export async function POST(req: Request) {
         const message = err instanceof Error ? err.message : "Unknown error";
         sendEvent(controller, "error", { message });
         controller.close();
+      } finally {
+        clearInterval(heartbeat);
       }
     },
   });
