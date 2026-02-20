@@ -77,7 +77,7 @@ async function streamGenerateGemini(
   userContent: string,
   controller: ReadableStreamDefaultController
 ): Promise<{ text: string; stopReason: string; timedOut: boolean }> {
-  const gemini = getGeminiClient();
+  const gemini = await getGeminiClient();
   const model = gemini.getGenerativeModel({
     model: FALLBACK_MODEL_ID,
     generationConfig: { maxOutputTokens: 65536, temperature: 0.2 },
@@ -178,7 +178,7 @@ export async function POST(req: Request) {
         });
 
         // Step 2: Stream Claude generation with fallback
-        const client = getVertexClient();
+        const client = await getVertexClient();
         const userContent = `Here is a GitHub repository converted to structured markdown by Repomix:\n\n---BEGIN REPO MARKDOWN---\n${repomixResult.markdown}\n---END REPO MARKDOWN---\n\nAnalyze this repository and generate the complete skill architecture.`;
 
         sendEvent(controller, "status", {

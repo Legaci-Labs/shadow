@@ -92,7 +92,7 @@ export async function generateSkill(
   answers: Record<string, string>,
   repoMarkdown: string
 ): Promise<SkillResult> {
-  const client = getVertexClient();
+  const client = await getVertexClient();
 
   const userContent = `## Repository Analysis\n${JSON.stringify(analysis)}\n\n## User Preferences\n${JSON.stringify(answers)}\n\n## Full Repository Source (Repomix compressed markdown)\n\n---BEGIN REPO MARKDOWN---\n${repoMarkdown}\n---END REPO MARKDOWN---\n\nGenerate the complete skill architecture.`;
 

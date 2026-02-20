@@ -65,7 +65,7 @@ async function streamGenerateGemini(
   userContent: string,
   controller: ReadableStreamDefaultController
 ): Promise<{ text: string; stopReason: string; timedOut: boolean }> {
-  const gemini = getGeminiClient();
+  const gemini = await getGeminiClient();
   const model = gemini.getGenerativeModel({
     model: FALLBACK_MODEL_ID,
     generationConfig: { maxOutputTokens: 65536, temperature: 0.2 },
@@ -138,7 +138,7 @@ export async function POST(req: Request) {
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        const client = getVertexClient();
+        const client = await getVertexClient();
         const userContent = `## Repository Analysis\n${JSON.stringify(analysis)}\n\n## User Preferences\n${JSON.stringify(answers)}\n\n## Full Repository Source (Repomix compressed markdown)\n\n---BEGIN REPO MARKDOWN---\n${repoMarkdown}\n---END REPO MARKDOWN---\n\nGenerate the complete skill architecture.`;
 
         sendEvent(controller, "status", {

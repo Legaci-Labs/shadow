@@ -11,6 +11,9 @@
   "dependencies": {
     "@anthropic-ai/vertex-sdk": "^0.14",
     "@google-cloud/vertexai": "^1.10.0",
+    "@vercel/analytics": "^1.6.1",
+    "@vercel/oidc": "^3.2.0",
+    "google-auth-library": "^10.5.0",
     "jszip": "^3.10",
     "next": "^15",
     "react": "^19",

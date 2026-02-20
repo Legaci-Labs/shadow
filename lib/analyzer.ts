@@ -45,7 +45,7 @@ function extractText(content: Array<{ type: string; text?: string }>): string {
 export async function analyzeRepo(
   repoMarkdown: string
 ): Promise<RepoAnalysis> {
-  const client = getVertexClient();
+  const client = await getVertexClient();
 
   const message = await client.messages.create({
     model: MODEL_ID,

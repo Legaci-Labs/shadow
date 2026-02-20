@@ -1,30 +1,51 @@
 import AnthropicVertex from "@anthropic-ai/vertex-sdk";
 import { VertexAI } from "@google-cloud/vertexai";
-import { ensureVertexCredentials } from "./vertex-auth";
+import { isVercelOidc, createWifAuthClient, ensureVertexCredentials } from "./vertex-auth";
 
-let _client: AnthropicVertex | null = null;
-let _geminiClient: VertexAI | null = null;
+// Cached clients for local dev (ADC). Not used on Vercel (per-request auth).
+let _localClient: AnthropicVertex | null = null;
+let _localGemini: VertexAI | null = null;
 
-export function getVertexClient(): AnthropicVertex {
-  if (!_client) {
+export async function getVertexClient(): Promise<AnthropicVertex> {
+  if (isVercelOidc()) {
+    const authClient = await createWifAuthClient();
+    return new AnthropicVertex({
+      projectId: process.env.GOOGLE_CLOUD_PROJECT_ID!,
+      region: process.env.GOOGLE_CLOUD_REGION ?? "global",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      authClient: authClient as any,
+    });
+  }
+
+  if (!_localClient) {
     ensureVertexCredentials();
-    _client = new AnthropicVertex({
+    _localClient = new AnthropicVertex({
       projectId: process.env.GOOGLE_CLOUD_PROJECT_ID!,
       region: process.env.GOOGLE_CLOUD_REGION ?? "global",
     });
   }
-  return _client;
+  return _localClient;
 }
 
-export function getGeminiClient(): VertexAI {
-  if (!_geminiClient) {
+export async function getGeminiClient(): Promise<VertexAI> {
+  if (isVercelOidc()) {
+    const authClient = await createWifAuthClient();
+    return new VertexAI({
+      project: process.env.GOOGLE_CLOUD_PROJECT_ID!,
+      location: process.env.GOOGLE_CLOUD_GEMINI_REGION ?? "us-central1",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      googleAuthOptions: { authClient: authClient as any },
+    });
+  }
+
+  if (!_localGemini) {
     ensureVertexCredentials();
-    _geminiClient = new VertexAI({
+    _localGemini = new VertexAI({
       project: process.env.GOOGLE_CLOUD_PROJECT_ID!,
       location: process.env.GOOGLE_CLOUD_GEMINI_REGION ?? "us-central1",
     });
   }
-  return _geminiClient;
+  return _localGemini;
 }
 
 export const MODEL_ID = "claude-sonnet-4-6";
