@@ -14,11 +14,10 @@ Domain: **shadow-oss.info** (registered on Namecheap, hosted on Vercel)
 * **Styling**: Tailwind CSS v4 with shadcn/ui-style components (copied into `components/ui/`)
 * **AI**: Gemini 2.5 Flash Lite via GCP Vertex AI (`@google-cloud/vertexai`)
 * **Repo ingestion**: Repomix (used as a Node.js library)
-* **Deployment**: Vercel (Pro) → custom domain shadow-oss.info via Namecheap DNS
+* **Deployment**: Vercel  → custom domain 
 * **Auth**: Vercel OIDC → GCP Workload Identity Federation (keyless, no service account JSON)
 * **Package manager**: pnpm
 
-No database. No auth. No accounts. Fully stateless.
 
 ---
 
@@ -138,15 +137,7 @@ GOOGLE_CLOUD_GEMINI_REGION=us-central1
 ### **Vercel**
 
 * Connected GitHub repo: `Legaci-Labs/shadow` (auto-deploys on push to `master`)
-* `maxDuration = 300` on the API route (Vercel Pro supports up to 300s)
-* Vercel Analytics enabled
 
-### **Namecheap DNS**
-
-| Type | Host | Value |
-|------|------|-------|
-| A | @ | 76.76.21.21 |
-| CNAME | www | cname.vercel-dns.com. |
 
 ---
 
