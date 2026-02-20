@@ -464,7 +464,7 @@ export default function Home() {
                   </pre>
                 ) : (
                   <div className="flex items-center justify-center h-full min-h-[200px] text-muted-foreground/40 text-sm">
-                    Waiting for Claude...
+                    Getting vibes from the Gitship
                   </div>
                 )}
               </div>
