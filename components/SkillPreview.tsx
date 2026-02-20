@@ -7,23 +7,7 @@ import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { FileTree } from "./FileTree";
 import { DownloadButton } from "./DownloadButton";
 import { Button } from "@/components/ui/button";
-
-interface SkillFile {
-  path: string;
-  content: string;
-}
-
-interface SkillMetadata {
-  skillName: string;
-  totalLines: number;
-  fileCount: number;
-  estimatedTriggerPhrases: string[];
-  relatedRepos?: Array<{
-    name: string;
-    url: string;
-    relationship: string;
-  }>;
-}
+import type { SkillFile, SkillMetadata } from "@/lib/types";
 
 interface SkillPreviewProps {
   files: SkillFile[];

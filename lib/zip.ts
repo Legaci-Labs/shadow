@@ -1,9 +1,5 @@
 import JSZip from "jszip";
-
-interface SkillFile {
-  path: string;
-  content: string;
-}
+import type { SkillFile } from "./types";
 
 export async function generateZip(
   skillName: string,

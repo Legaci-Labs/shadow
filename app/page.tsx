@@ -5,23 +5,9 @@ import { RepoInput } from "@/components/RepoInput";
 import { SkillPreview } from "@/components/SkillPreview";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
+import type { SkillData } from "@/lib/types";
 
 type AppState = "input" | "processing" | "result";
-
-interface SkillData {
-  files: Array<{ path: string; content: string }>;
-  metadata: {
-    skillName: string;
-    totalLines: number;
-    fileCount: number;
-    estimatedTriggerPhrases: string[];
-    relatedRepos: Array<{
-      name: string;
-      url: string;
-      relationship: string;
-    }>;
-  };
-}
 
 interface StatusInfo {
   stage: string;
@@ -208,9 +194,8 @@ export default function Home() {
               Shadow<span className="text-primary">OSS</span>
             </h2>
             <p className="text-lg text-muted-foreground mb-12 max-w-xl mx-auto">
-              Drop a GitHub repo. Get an AI skill file.
-              <br />
-              Give your Claude Code agents custom skills to learn from
+              Drop a GitHub repo. Give your Claude Code agents dev{" "}
+              <span className="line-through">skills</span> superpowers.
             </p>
             <RepoInput onSubmit={handleSubmit} />
             <div className="mt-16 max-w-lg mx-auto">

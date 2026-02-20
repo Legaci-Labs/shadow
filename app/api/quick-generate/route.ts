@@ -1,6 +1,7 @@
 import { convertRepoToMarkdown } from "@/lib/repomix";
 import { getGeminiClient, GEMINI_MODEL_ID } from "@/lib/vertex-client";
 import { QUICK_GENERATE_SYSTEM_PROMPT } from "@/lib/prompts";
+import { isRateLimited } from "@/lib/rate-limit";
 
 function isValidGithubUrl(url: string): boolean {
   try {
@@ -74,6 +75,18 @@ function repairTruncatedJson(text: string): object | null {
 }
 
 export async function POST(req: Request) {
+  const ip =
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    req.headers.get("x-real-ip") ??
+    "unknown";
+
+  if (isRateLimited(ip)) {
+    return new Response(
+      JSON.stringify({ error: "Too many requests. Please wait a minute and try again." }),
+      { status: 429, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
   const { repoUrl } = await req.json();
 
   if (!repoUrl || !isValidGithubUrl(repoUrl)) {

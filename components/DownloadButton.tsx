@@ -2,11 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { generateZip } from "@/lib/zip";
-
-interface SkillFile {
-  path: string;
-  content: string;
-}
+import type { SkillFile } from "@/lib/types";
 
 interface DownloadButtonProps {
   files: SkillFile[];
