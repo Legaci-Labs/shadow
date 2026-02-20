@@ -1,19 +1,26 @@
 import AnthropicVertex from "@anthropic-ai/vertex-sdk";
-import { VertexAI } from "@google-cloud/vertexai";
-import { isVercelOidc, createWifAuthClient, ensureVertexCredentials } from "./vertex-auth";
+import { isVercelOidc, getWifAccessToken, ensureVertexCredentials } from "./vertex-auth";
 
 // Cached clients for local dev (ADC). Not used on Vercel (per-request auth).
 let _localClient: AnthropicVertex | null = null;
-let _localGemini: VertexAI | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _localGemini: any = null;
 
 export async function getVertexClient(): Promise<AnthropicVertex> {
   if (isVercelOidc()) {
-    const authClient = await createWifAuthClient();
+    const accessToken = await getWifAccessToken();
+    // Must provide authClient to prevent the SDK from calling new GoogleAuth().getClient()
+    // which fails on Vercel (no ADC). The accessToken takes precedence for actual API calls.
+    const noopAuthClient = {
+      getAccessToken: async () => ({ token: accessToken, res: null }),
+      getRequestHeaders: async () => ({ Authorization: `Bearer ${accessToken}` }),
+    };
     return new AnthropicVertex({
       projectId: process.env.GOOGLE_CLOUD_PROJECT_ID!,
       region: process.env.GOOGLE_CLOUD_REGION ?? "global",
+      accessToken,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      authClient: authClient as any,
+      authClient: noopAuthClient as any,
     });
   }
 
@@ -27,14 +34,23 @@ export async function getVertexClient(): Promise<AnthropicVertex> {
   return _localClient;
 }
 
-export async function getGeminiClient(): Promise<VertexAI> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function getGeminiClient(): Promise<any> {
+  const { VertexAI } = await import("@google-cloud/vertexai");
   if (isVercelOidc()) {
-    const authClient = await createWifAuthClient();
+    const accessToken = await getWifAccessToken();
+    // Create a minimal auth client that returns the pre-fetched WIF token
+    const fakeAuthClient = {
+      getAccessToken: async () => ({ token: accessToken, res: null }),
+      getRequestHeaders: async () => ({ Authorization: `Bearer ${accessToken}` }),
+    };
     return new VertexAI({
       project: process.env.GOOGLE_CLOUD_PROJECT_ID!,
       location: process.env.GOOGLE_CLOUD_GEMINI_REGION ?? "us-central1",
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      googleAuthOptions: { authClient: authClient as any },
+      googleAuthOptions: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        authClient: fakeAuthClient as any,
+      },
     });
   }
 
@@ -50,4 +66,6 @@ export async function getGeminiClient(): Promise<VertexAI> {
 
 export const MODEL_ID = "claude-sonnet-4-6";
 export const FALLBACK_MODEL_ID = "gemini-2.5-flash-lite";
-export const MODEL_TIMEOUT_MS = 30_000;
+// On Vercel, the function has a 120s max duration — no need for a short timeout.
+// Locally, use 60s timeout with Gemini fallback.
+export const MODEL_TIMEOUT_MS = process.env.VERCEL ? 0 : 60_000;

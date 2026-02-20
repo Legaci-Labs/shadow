@@ -48,13 +48,17 @@ export async function convertRepoToMarkdown(
   try {
     const { runCli } = await import("repomix");
 
+    // tree-sitter WASM modules aren't available on Vercel serverless,
+    // so disable compress (which requires tree-sitter) in production
+    const isVercel = !!process.env.VERCEL;
+
     let result;
     try {
       result = await runCli(["."], process.cwd(), {
         remote: repoUrl,
         output: outputPath,
         style: "markdown",
-        compress: true,
+        compress: !isVercel,
         removeComments: true,
         removeEmptyLines: true,
         truncateBase64: true,

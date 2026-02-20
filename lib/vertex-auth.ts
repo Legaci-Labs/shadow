@@ -15,23 +15,58 @@ export function isVercelOidc(): boolean {
 }
 
 /**
- * Creates a GCP auth client using Vercel's OIDC token + Workload Identity Federation.
- * Must be called per-request (the OIDC token comes from the request header).
+ * Gets a GCP access token via Vercel OIDC + Workload Identity Federation.
+ * Exchanges the Vercel OIDC JWT for a GCP access token using the STS API.
  */
-export async function createWifAuthClient() {
+export async function getWifAccessToken(): Promise<string> {
   const { getVercelOidcToken } = await import("@vercel/oidc");
-  const { ExternalAccountClient } = await import("google-auth-library");
 
-  return ExternalAccountClient.fromJSON({
-    type: "external_account",
-    audience: `//iam.googleapis.com/projects/${process.env.GCP_PROJECT_NUMBER}/locations/global/workloadIdentityPools/${process.env.GCP_WORKLOAD_IDENTITY_POOL_ID}/providers/${process.env.GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID}`,
-    subject_token_type: "urn:ietf:params:oauth:token-type:jwt",
-    token_url: "https://sts.googleapis.com/v1/token",
-    service_account_impersonation_url: `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${process.env.GCP_SERVICE_ACCOUNT_EMAIL}:generateAccessToken`,
-    subject_token_supplier: {
-      getSubjectToken: async () => getVercelOidcToken(),
-    },
+  const oidcToken = await getVercelOidcToken();
+  const audience = `//iam.googleapis.com/projects/${process.env.GCP_PROJECT_NUMBER}/locations/global/workloadIdentityPools/${process.env.GCP_WORKLOAD_IDENTITY_POOL_ID}/providers/${process.env.GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID}`;
+
+  // Step 1: Exchange OIDC token for a federated access token via STS
+  const stsRes = await fetch("https://sts.googleapis.com/v1/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+      audience,
+      scope: "https://www.googleapis.com/auth/cloud-platform",
+      requested_token_type: "urn:ietf:params:oauth:token-type:access_token",
+      subject_token_type: "urn:ietf:params:oauth:token-type:jwt",
+      subject_token: oidcToken,
+    }),
   });
+
+  if (!stsRes.ok) {
+    const err = await stsRes.text();
+    throw new Error(`STS token exchange failed: ${err}`);
+  }
+
+  const stsData = await stsRes.json();
+
+  // Step 2: Impersonate the service account to get a GCP access token
+  const impersonateRes = await fetch(
+    `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${process.env.GCP_SERVICE_ACCOUNT_EMAIL}:generateAccessToken`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${stsData.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        scope: ["https://www.googleapis.com/auth/cloud-platform"],
+      }),
+    }
+  );
+
+  if (!impersonateRes.ok) {
+    const err = await impersonateRes.text();
+    throw new Error(`Service account impersonation failed: ${err}`);
+  }
+
+  const impersonateData = await impersonateRes.json();
+  return impersonateData.accessToken;
 }
 
 /**
