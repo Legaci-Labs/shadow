@@ -93,7 +93,7 @@ export function RepoInput({ onSubmit, disabled }: RepoInputProps) {
           disabled={disabled || !url.trim()}
           size="lg"
         >
-          Make it Quick
+          Quick
         </Button>
         <Button
           onClick={() => handleSubmit("refine")}
@@ -101,7 +101,7 @@ export function RepoInput({ onSubmit, disabled }: RepoInputProps) {
           size="lg"
           variant="secondary"
         >
-          Let&apos;s refine this
+          Custom
         </Button>
       </div>
 
