@@ -66,6 +66,8 @@ export async function getGeminiClient(): Promise<any> {
 
 export const MODEL_ID = "claude-sonnet-4-6";
 export const FALLBACK_MODEL_ID = "gemini-2.5-flash-lite";
-// On Vercel, the function has a 120s max duration — no need for a short timeout.
-// Locally, use 60s timeout with Gemini fallback.
-export const MODEL_TIMEOUT_MS = process.env.VERCEL ? 0 : 60_000;
+// First-chunk timeout: if Claude doesn't start streaming within this window, fall back.
+export const MODEL_TIMEOUT_MS = 60_000;
+// Total generation deadline: abort Claude and fall back to Gemini if generation
+// exceeds this. Leaves headroom before the 300s Vercel maxDuration.
+export const MODEL_DEADLINE_MS = process.env.VERCEL ? 180_000 : 0;

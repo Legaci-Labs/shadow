@@ -1,4 +1,4 @@
-import { getVertexClient, getGeminiClient, MODEL_ID, FALLBACK_MODEL_ID, MODEL_TIMEOUT_MS } from "@/lib/vertex-client";
+import { getVertexClient, getGeminiClient, MODEL_ID, FALLBACK_MODEL_ID, MODEL_TIMEOUT_MS, MODEL_DEADLINE_MS } from "@/lib/vertex-client";
 import { GENERATOR_SYSTEM_PROMPT } from "@/lib/prompts";
 
 function sendEvent(
@@ -31,7 +31,8 @@ async function streamGenerate(
   system: string,
   userContent: string,
   controller: ReadableStreamDefaultController,
-  timeoutMs?: number
+  timeoutMs?: number,
+  deadlineMs?: number
 ): Promise<{ text: string; stopReason: string; timedOut: boolean }> {
   const messageStream = client.messages.stream({
     model,
@@ -62,6 +63,27 @@ async function streamGenerate(
       try { messageStream.abort(); } catch { /* best effort */ }
       return { text: "", stopReason: "", timedOut: true };
     }
+  }
+
+  // If deadline specified, race completion against a total time limit
+  if (deadlineMs) {
+    const done = messageStream.finalMessage();
+    const deadline = new Promise<"deadline">((resolve) =>
+      setTimeout(() => resolve("deadline"), deadlineMs)
+    );
+
+    const race = await Promise.race([done, deadline]);
+    if (race === "deadline") {
+      try { messageStream.abort(); } catch { /* best effort */ }
+      return { text: fullText, stopReason: "", timedOut: true };
+    }
+
+    const finalMessage = race;
+    return {
+      text: fullText,
+      stopReason: finalMessage.stop_reason ?? "end_turn",
+      timedOut: false,
+    };
   }
 
   const finalMessage = await messageStream.finalMessage();
@@ -166,14 +188,15 @@ export async function POST(req: Request) {
           GENERATOR_SYSTEM_PROMPT,
           userContent,
           controller,
-          MODEL_TIMEOUT_MS
+          MODEL_TIMEOUT_MS,
+          MODEL_DEADLINE_MS
         );
 
-        // Fallback to Gemini if timed out
+        // Fallback to Gemini if timed out or hit deadline
         if (result.timedOut) {
           sendEvent(controller, "status", {
             stage: "generating",
-            message: `Primary model slow, switching to ${FALLBACK_MODEL_ID}...`,
+            message: "Switching to faster model...",
           });
 
           result = await streamGenerateGemini(
@@ -225,4 +248,4 @@ export async function POST(req: Request) {
   });
 }
 
-export const maxDuration = 120;
+export const maxDuration = 300;

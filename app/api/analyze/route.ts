@@ -122,4 +122,4 @@ export async function POST(req: Request) {
   });
 }
 
-export const maxDuration = 120;
+export const maxDuration = 300;
