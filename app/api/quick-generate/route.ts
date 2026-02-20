@@ -142,16 +142,44 @@ export async function POST(req: Request) {
           message: "Zapping some code...",
         });
 
-        const result = await model.generateContentStream({
-          contents: [{ role: "user", parts: [{ text: userContent }] }],
-        });
-
+        // Retry up to 3 times on Vertex AI 429 (rate limit) with exponential backoff
         let fullText = "";
-        for await (const chunk of result.stream) {
-          const text = chunk.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-          if (text) {
-            fullText += text;
-            sendEvent(controller, "chunk", { text, fullLength: fullText.length });
+        const MAX_RETRIES = 3;
+        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+          try {
+            const result = await model.generateContentStream({
+              contents: [{ role: "user", parts: [{ text: userContent }] }],
+            });
+
+            fullText = "";
+            for await (const chunk of result.stream) {
+              const text = chunk.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+              if (text) {
+                fullText += text;
+                sendEvent(controller, "chunk", { text, fullLength: fullText.length });
+              }
+            }
+            break; // success
+          } catch (genErr) {
+            const errMsg = genErr instanceof Error ? genErr.message : String(genErr);
+            const is429 = errMsg.includes("429") || errMsg.includes("RESOURCE_EXHAUSTED");
+
+            if (is429 && attempt < MAX_RETRIES) {
+              const backoff = (attempt + 1) * 10_000; // 10s, 20s, 30s
+              sendEvent(controller, "status", {
+                stage: "generating",
+                message: `Rate limited by Vertex AI. Retrying in ${backoff / 1000}s...`,
+              });
+              await new Promise((r) => setTimeout(r, backoff));
+              // Reset streamed text for retry
+              fullText = "";
+              sendEvent(controller, "status", {
+                stage: "generating",
+                message: "Retrying generation...",
+              });
+              continue;
+            }
+            throw genErr;
           }
         }
 
