@@ -389,7 +389,7 @@ export default function Home() {
             <p className="text-lg text-muted-foreground mb-12 max-w-xl mx-auto">
               Drop a GitHub repo. Get an AI skill file.
               <br />
-              Make Claude actually understand your code.
+              Give your Claude Code agents custom skills to learn from
             </p>
             <RepoInput onSubmit={handleSubmit} />
             <div className="mt-16 max-w-lg mx-auto">
