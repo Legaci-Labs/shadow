@@ -50,6 +50,81 @@ export default function Home() {
     }
   }, [streamedText, state]);
 
+  const attemptGenerate = useCallback(async (repoUrl: string, signal: AbortSignal) => {
+    const res = await fetch("/api/quick-generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repoUrl }),
+      signal,
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      let msg = "Request failed";
+      try { msg = JSON.parse(text).error || msg; } catch { msg = text.slice(0, 200) || msg; }
+      throw new Error(msg);
+    }
+
+    // Read SSE stream
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error("No response stream");
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let gotComplete = false;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      let eventType = "";
+      for (const line of lines) {
+        if (line.startsWith("event: ")) {
+          eventType = line.slice(7);
+        } else if (line.startsWith("data: ") && eventType) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            switch (eventType) {
+              case "status":
+                setStatus({
+                  stage: data.stage as string,
+                  message: data.message as string,
+                  fileCount: data.fileCount as number | undefined,
+                  tokenCount: data.tokenCount as number | undefined,
+                });
+                break;
+              case "chunk":
+                streamBufferRef.current += data.text as string;
+                setStreamedText(streamBufferRef.current);
+                break;
+              case "complete":
+                gotComplete = true;
+                setSkillData(data as unknown as SkillData);
+                setState("result");
+                break;
+              case "error":
+                gotComplete = true;
+                setError(data.message as string);
+                setState("input");
+                break;
+            }
+          } catch {
+            // Skip malformed
+          }
+          eventType = "";
+        }
+      }
+    }
+
+    if (!gotComplete) {
+      throw new Error("CONNECTION_LOST");
+    }
+  }, []);
+
   const handleSubmit = useCallback(async (repoUrl: string) => {
     setState("processing");
     setError(null);
@@ -64,85 +139,47 @@ export default function Home() {
     abortRef.current = abort;
 
     try {
-      const res = await fetch("/api/quick-generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repoUrl }),
-        signal: abort.signal,
-      });
+      await attemptGenerate(repoUrl, abort.signal);
+    } catch (err) {
+      if ((err as Error).name === "AbortError") return;
 
-      if (!res.ok) {
-        const text = await res.text();
-        let msg = "Request failed";
-        try { msg = JSON.parse(text).error || msg; } catch { msg = text.slice(0, 200) || msg; }
-        throw new Error(msg);
-      }
+      const msg = err instanceof Error ? err.message : "";
+      const isNetworkError = msg === "CONNECTION_LOST"
+        || msg.toLowerCase().includes("network")
+        || msg.toLowerCase().includes("failed to fetch");
 
-      // Read SSE stream
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error("No response stream");
+      // Auto-retry once on transient network errors (cold start, connection drop)
+      if (isNetworkError && !abort.signal.aborted) {
+        setStreamedText("");
+        setDisplayedText("");
+        streamBufferRef.current = "";
+        lastFlushedRef.current = 0;
+        setStatus({ stage: "cloning", message: "Reconnecting..." });
 
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let gotComplete = false;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        let eventType = "";
-        for (const line of lines) {
-          if (line.startsWith("event: ")) {
-            eventType = line.slice(7);
-          } else if (line.startsWith("data: ") && eventType) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              switch (eventType) {
-                case "status":
-                  setStatus({
-                    stage: data.stage as string,
-                    message: data.message as string,
-                    fileCount: data.fileCount as number | undefined,
-                    tokenCount: data.tokenCount as number | undefined,
-                  });
-                  break;
-                case "chunk":
-                  streamBufferRef.current += data.text as string;
-                  setStreamedText(streamBufferRef.current);
-                  break;
-                case "complete":
-                  gotComplete = true;
-                  setSkillData(data as unknown as SkillData);
-                  setState("result");
-                  break;
-                case "error":
-                  gotComplete = true;
-                  setError(data.message as string);
-                  setState("input");
-                  break;
-              }
-            } catch {
-              // Skip malformed
-            }
-            eventType = "";
+        try {
+          await attemptGenerate(repoUrl, abort.signal);
+          return;
+        } catch (retryErr) {
+          if ((retryErr as Error).name === "AbortError") return;
+          const retryMsg = retryErr instanceof Error ? retryErr.message : "";
+          if (retryMsg === "CONNECTION_LOST") {
+            setError("Connection lost. The server may have timed out. Please try again.");
+          } else {
+            setError(retryMsg || "Something went wrong");
           }
+          setState("input");
+          return;
         }
       }
 
-      if (!gotComplete) {
+      if (msg === "CONNECTION_LOST") {
         setError("Connection lost. The server may have timed out. Please try again.");
-        setState("input");
+      } else {
+        setError(msg || "Something went wrong");
       }
-    } catch (err) {
-      if ((err as Error).name === "AbortError") return;
-      setError(err instanceof Error ? err.message : "Something went wrong");
       setState("input");
     }
-  }, []);
+  }, [attemptGenerate]);
 
   const handleReset = () => {
     abortRef.current?.abort();
