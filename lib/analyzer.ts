@@ -1,4 +1,4 @@
-import { getVertexClient, MODEL_ID } from "./vertex-client";
+import { getGeminiClient, GEMINI_MODEL_ID } from "./vertex-client";
 import { ANALYZER_SYSTEM_PROMPT } from "./prompts";
 
 export interface RepoAnalysis {
@@ -35,62 +35,29 @@ export interface RepoAnalysis {
   };
 }
 
-function extractText(content: Array<{ type: string; text?: string }>): string {
-  return content
-    .filter((block) => block.type === "text" && block.text)
-    .map((block) => block.text!)
-    .join("");
-}
-
 export async function analyzeRepo(
   repoMarkdown: string
 ): Promise<RepoAnalysis> {
-  const client = await getVertexClient();
-
-  const message = await client.messages.create({
-    model: MODEL_ID,
-    max_tokens: 4096,
-    temperature: 0.3,
-    system: ANALYZER_SYSTEM_PROMPT,
-    messages: [
-      {
-        role: "user",
-        content: `Here is a GitHub repository converted to structured markdown by Repomix:\n\n---BEGIN REPO MARKDOWN---\n${repoMarkdown}\n---END REPO MARKDOWN---\n\nAnalyze this repository and generate clarifying questions for skill file generation.`,
-      },
-    ],
+  const gemini = await getGeminiClient();
+  const model = gemini.getGenerativeModel({
+    model: GEMINI_MODEL_ID,
+    generationConfig: { maxOutputTokens: 8192, temperature: 0.3 },
+    systemInstruction: { role: "system", parts: [{ text: ANALYZER_SYSTEM_PROMPT }] },
   });
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const text = extractText(message.content as any);
+  const result = await model.generateContent({
+    contents: [{
+      role: "user",
+      parts: [{ text: `Here is a GitHub repository converted to structured markdown by Repomix:\n\n---BEGIN REPO MARKDOWN---\n${repoMarkdown}\n---END REPO MARKDOWN---\n\nAnalyze this repository and generate clarifying questions for skill file generation.` }],
+    }],
+  });
+
+  const text = result.response?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
 
   try {
     return JSON.parse(text);
   } catch {
-    // Retry once with explicit JSON instruction
-    const retry = await client.messages.create({
-      model: MODEL_ID,
-      max_tokens: 4096,
-      temperature: 0.1,
-      system: ANALYZER_SYSTEM_PROMPT,
-      messages: [
-        {
-          role: "user",
-          content: `Here is a GitHub repository converted to structured markdown by Repomix:\n\n---BEGIN REPO MARKDOWN---\n${repoMarkdown}\n---END REPO MARKDOWN---\n\nAnalyze this repository and generate clarifying questions for skill file generation.`,
-        },
-        {
-          role: "assistant",
-          content: text,
-        },
-        {
-          role: "user",
-          content:
-            "Your response was not valid JSON. Please respond ONLY with valid JSON, no markdown fences, no preamble.",
-        },
-      ],
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const retryText = extractText(retry.content as any);
-    return JSON.parse(retryText);
+    const cleaned = text.replace(/^```json\s*\n?/, "").replace(/\n?```\s*$/, "");
+    return JSON.parse(cleaned);
   }
 }

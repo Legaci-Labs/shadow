@@ -1,5 +1,5 @@
 import { convertRepoToMarkdown } from "@/lib/repomix";
-import { getVertexClient, getGeminiClient, MODEL_ID, FALLBACK_MODEL_ID, MODEL_TIMEOUT_MS, MODEL_DEADLINE_MS } from "@/lib/vertex-client";
+import { getGeminiClient, GEMINI_MODEL_ID } from "@/lib/vertex-client";
 import { QUICK_GENERATE_SYSTEM_PROMPT } from "@/lib/prompts";
 
 function isValidGithubUrl(url: string): boolean {
@@ -34,104 +34,6 @@ function startHeartbeat(controller: ReadableStreamDefaultController): NodeJS.Tim
       // controller closed
     }
   }, 10_000);
-}
-
-async function streamGenerate(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  client: any,
-  model: string,
-  system: string,
-  userContent: string,
-  controller: ReadableStreamDefaultController,
-  timeoutMs?: number,
-  deadlineMs?: number
-): Promise<{ text: string; stopReason: string; timedOut: boolean }> {
-  const messageStream = client.messages.stream({
-    model,
-    max_tokens: 64000,
-    temperature: 0.2,
-    system,
-    messages: [{ role: "user", content: userContent }],
-  });
-
-  // Start collecting text immediately so no chunks are missed
-  let fullText = "";
-  messageStream.on("text", (text: string) => {
-    fullText += text;
-    sendEvent(controller, "chunk", { text, fullLength: fullText.length });
-  });
-
-  // If timeout specified, race first text chunk against a timer
-  if (timeoutMs) {
-    const gotFirstChunk = new Promise<"chunk">((resolve) => {
-      messageStream.once("text", () => resolve("chunk"));
-    });
-    const timeout = new Promise<"timeout">((resolve) =>
-      setTimeout(() => resolve("timeout"), timeoutMs)
-    );
-
-    const race = await Promise.race([gotFirstChunk, timeout]);
-    if (race === "timeout") {
-      try { messageStream.abort(); } catch { /* best effort */ }
-      return { text: "", stopReason: "", timedOut: true };
-    }
-  }
-
-  // If deadline specified, race completion against a total time limit
-  if (deadlineMs) {
-    const done = messageStream.finalMessage();
-    const deadline = new Promise<"deadline">((resolve) =>
-      setTimeout(() => resolve("deadline"), deadlineMs)
-    );
-
-    const race = await Promise.race([done, deadline]);
-    if (race === "deadline") {
-      try { messageStream.abort(); } catch { /* best effort */ }
-      return { text: fullText, stopReason: "", timedOut: true };
-    }
-
-    const finalMessage = race;
-    return {
-      text: fullText,
-      stopReason: finalMessage.stop_reason ?? "end_turn",
-      timedOut: false,
-    };
-  }
-
-  const finalMessage = await messageStream.finalMessage();
-  return {
-    text: fullText,
-    stopReason: finalMessage.stop_reason ?? "end_turn",
-    timedOut: false,
-  };
-}
-
-async function streamGenerateGemini(
-  system: string,
-  userContent: string,
-  controller: ReadableStreamDefaultController
-): Promise<{ text: string; stopReason: string; timedOut: boolean }> {
-  const gemini = await getGeminiClient();
-  const model = gemini.getGenerativeModel({
-    model: FALLBACK_MODEL_ID,
-    generationConfig: { maxOutputTokens: 65535, temperature: 0.2 },
-    systemInstruction: { role: "system", parts: [{ text: system }] },
-  });
-
-  const result = await model.generateContentStream({
-    contents: [{ role: "user", parts: [{ text: userContent }] }],
-  });
-
-  let fullText = "";
-  for await (const chunk of result.stream) {
-    const text = chunk.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-    if (text) {
-      fullText += text;
-      sendEvent(controller, "chunk", { text, fullLength: fullText.length });
-    }
-  }
-
-  return { text: fullText, stopReason: "end_turn", timedOut: false };
 }
 
 function repairTruncatedJson(text: string): object | null {
@@ -212,8 +114,14 @@ export async function POST(req: Request) {
           truncated: repomixResult.truncated,
         });
 
-        // Step 2: Stream Claude generation with fallback
-        const client = await getVertexClient();
+        // Step 2: Stream Gemini generation
+        const gemini = await getGeminiClient();
+        const model = gemini.getGenerativeModel({
+          model: GEMINI_MODEL_ID,
+          generationConfig: { maxOutputTokens: 65535, temperature: 0.2 },
+          systemInstruction: { role: "system", parts: [{ text: QUICK_GENERATE_SYSTEM_PROMPT }] },
+        });
+
         const userContent = `Here is a GitHub repository converted to structured markdown by Repomix:\n\n---BEGIN REPO MARKDOWN---\n${repomixResult.markdown}\n---END REPO MARKDOWN---\n\nAnalyze this repository and generate the complete skill architecture.`;
 
         sendEvent(controller, "status", {
@@ -221,40 +129,29 @@ export async function POST(req: Request) {
           message: "Zapping some code...",
         });
 
-        let result = await streamGenerate(
-          client,
-          MODEL_ID,
-          QUICK_GENERATE_SYSTEM_PROMPT,
-          userContent,
-          controller,
-          MODEL_TIMEOUT_MS,
-          MODEL_DEADLINE_MS
-        );
+        const result = await model.generateContentStream({
+          contents: [{ role: "user", parts: [{ text: userContent }] }],
+        });
 
-        // Fallback to Gemini if primary timed out or hit deadline
-        if (result.timedOut) {
-          sendEvent(controller, "status", {
-            stage: "generating",
-            message: "Switching to faster model...",
-          });
-
-          result = await streamGenerateGemini(
-            QUICK_GENERATE_SYSTEM_PROMPT,
-            userContent,
-            controller
-          );
+        let fullText = "";
+        for await (const chunk of result.stream) {
+          const text = chunk.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+          if (text) {
+            fullText += text;
+            sendEvent(controller, "chunk", { text, fullLength: fullText.length });
+          }
         }
 
         // Parse
         let parsed;
         try {
-          parsed = JSON.parse(result.text);
+          parsed = JSON.parse(fullText);
         } catch {
-          const cleaned = result.text.replace(/^```json\s*\n?/, "").replace(/\n?```\s*$/, "");
+          const cleaned = fullText.replace(/^```json\s*\n?/, "").replace(/\n?```\s*$/, "");
           try {
             parsed = JSON.parse(cleaned);
           } catch {
-            parsed = repairTruncatedJson(result.text) || repairTruncatedJson(cleaned);
+            parsed = repairTruncatedJson(fullText) || repairTruncatedJson(cleaned);
           }
         }
 
