@@ -74,6 +74,7 @@ export async function POST(req: Request) {
       repomixMeta: {
         tokenCount: repomixResult.tokenCount,
         fileCount: repomixResult.fileCount,
+        truncated: repomixResult.truncated,
       },
     });
   } catch (err) {

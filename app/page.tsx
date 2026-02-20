@@ -138,7 +138,7 @@ export default function Home() {
             </h1>
           </button>
           <a
-            href="https://github.com"
+            href="https://github.com/legaci-labs/shadow"
             target="_blank"
             rel="noopener noreferrer"
             className="text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -216,12 +216,7 @@ export default function Home() {
 
       {/* Footer */}
       <footer className="border-t border-border/50 mt-auto">
-        <div className="max-w-6xl mx-auto px-6 py-6 flex items-center justify-between text-xs text-muted-foreground/60">
-          <span>ShadowOSS</span>
-          <span>
-            Powered by Repomix + Claude Sonnet 4.6 via Vertex AI
-          </span>
-        </div>
+        <div className="max-w-6xl mx-auto px-6 py-6" />
       </footer>
     </main>
   );
