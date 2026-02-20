@@ -9,26 +9,27 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@anthropic-ai/vertex-sdk": "^0.14",
+    "@google-cloud/vertexai": "^1.10.0",
+    "jszip": "^3.10",
     "next": "^15",
     "react": "^19",
     "react-dom": "^19",
-    "@anthropic-ai/vertex-sdk": "^0.14",
-    "repomix": "^1.11",
-    "jszip": "^3.10",
     "react-markdown": "^9",
-    "react-syntax-highlighter": "^15"
+    "react-syntax-highlighter": "^15",
+    "repomix": "^1.11"
   },
   "devDependencies": {
-    "typescript": "^5.7",
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@types/node": "^22",
     "@types/react-syntax-highlighter": "^15",
-    "tailwindcss": "^4",
-    "@tailwindcss/postcss": "^4",
-    "postcss": "^8",
     "eslint": "^9",
     "eslint-config-next": "^15",
-    "@eslint/eslintrc": "^3"
+    "postcss": "^8",
+    "tailwindcss": "^4",
+    "typescript": "^5.7"
   }
 }

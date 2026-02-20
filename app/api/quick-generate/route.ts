@@ -1,5 +1,5 @@
 import { convertRepoToMarkdown } from "@/lib/repomix";
-import { getVertexClient, MODEL_ID, FALLBACK_MODEL_ID, MODEL_TIMEOUT_MS } from "@/lib/vertex-client";
+import { getVertexClient, getGeminiClient, MODEL_ID, FALLBACK_MODEL_ID, MODEL_TIMEOUT_MS } from "@/lib/vertex-client";
 import { QUICK_GENERATE_SYSTEM_PROMPT } from "@/lib/prompts";
 
 function isValidGithubUrl(url: string): boolean {
@@ -80,6 +80,34 @@ async function collectStream(
     stopReason: finalMessage.stop_reason ?? "end_turn",
     timedOut: false,
   };
+}
+
+async function streamGenerateGemini(
+  system: string,
+  userContent: string,
+  controller: ReadableStreamDefaultController
+): Promise<{ text: string; stopReason: string; timedOut: boolean }> {
+  const gemini = getGeminiClient();
+  const model = gemini.getGenerativeModel({
+    model: FALLBACK_MODEL_ID,
+    generationConfig: { maxOutputTokens: 65536, temperature: 0.2 },
+    systemInstruction: { role: "system", parts: [{ text: system }] },
+  });
+
+  const result = await model.generateContentStream({
+    contents: [{ role: "user", parts: [{ text: userContent }] }],
+  });
+
+  let fullText = "";
+  for await (const chunk of result.stream) {
+    const text = chunk.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+    if (text) {
+      fullText += text;
+      sendEvent(controller, "chunk", { text, fullLength: fullText.length });
+    }
+  }
+
+  return { text: fullText, stopReason: "end_turn", timedOut: false };
 }
 
 function repairTruncatedJson(text: string): object | null {
@@ -177,16 +205,14 @@ export async function POST(req: Request) {
           MODEL_TIMEOUT_MS
         );
 
-        // Fallback if primary timed out
+        // Fallback to Gemini if primary timed out
         if (result.timedOut) {
           sendEvent(controller, "status", {
             stage: "generating",
             message: `Primary model slow, switching to ${FALLBACK_MODEL_ID}...`,
           });
 
-          result = await streamGenerate(
-            client,
-            FALLBACK_MODEL_ID,
+          result = await streamGenerateGemini(
             QUICK_GENERATE_SYSTEM_PROMPT,
             userContent,
             controller

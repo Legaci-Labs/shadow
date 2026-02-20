@@ -1,4 +1,4 @@
-import { getVertexClient, MODEL_ID, FALLBACK_MODEL_ID, MODEL_TIMEOUT_MS } from "@/lib/vertex-client";
+import { getVertexClient, getGeminiClient, MODEL_ID, FALLBACK_MODEL_ID, MODEL_TIMEOUT_MS } from "@/lib/vertex-client";
 import { GENERATOR_SYSTEM_PROMPT } from "@/lib/prompts";
 
 function sendEvent(
@@ -75,6 +75,34 @@ async function collectStream(
   };
 }
 
+async function streamGenerateGemini(
+  system: string,
+  userContent: string,
+  controller: ReadableStreamDefaultController
+): Promise<{ text: string; stopReason: string; timedOut: boolean }> {
+  const gemini = getGeminiClient();
+  const model = gemini.getGenerativeModel({
+    model: FALLBACK_MODEL_ID,
+    generationConfig: { maxOutputTokens: 65536, temperature: 0.2 },
+    systemInstruction: { role: "system", parts: [{ text: system }] },
+  });
+
+  const result = await model.generateContentStream({
+    contents: [{ role: "user", parts: [{ text: userContent }] }],
+  });
+
+  let fullText = "";
+  for await (const chunk of result.stream) {
+    const text = chunk.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+    if (text) {
+      fullText += text;
+      sendEvent(controller, "chunk", { text, fullLength: fullText.length });
+    }
+  }
+
+  return { text: fullText, stopReason: "end_turn", timedOut: false };
+}
+
 function repairTruncatedJson(text: string): object | null {
   const filesMatch = text.match(/"files"\s*:\s*\[/);
   if (!filesMatch || filesMatch.index === undefined) return null;
@@ -143,16 +171,14 @@ export async function POST(req: Request) {
           MODEL_TIMEOUT_MS
         );
 
-        // Fallback if timed out
+        // Fallback to Gemini if timed out
         if (result.timedOut) {
           sendEvent(controller, "status", {
             stage: "generating",
             message: `Primary model slow, switching to ${FALLBACK_MODEL_ID}...`,
           });
 
-          result = await streamGenerate(
-            client,
-            FALLBACK_MODEL_ID,
+          result = await streamGenerateGemini(
             GENERATOR_SYSTEM_PROMPT,
             userContent,
             controller
