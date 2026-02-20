@@ -158,9 +158,14 @@ Valid JSON only:
     "skillName": "string",
     "totalLines": number,
     "fileCount": number,
-    "estimatedTriggerPhrases": ["string"]
+    "estimatedTriggerPhrases": ["string"],
+    "relatedRepos": [
+      { "name": "owner/repo", "url": "https://github.com/owner/repo", "relationship": "why this repo is related (dependency, companion tool, same ecosystem)" }
+    ]
   }
 }
+
+The "relatedRepos" field should list 3-4 GitHub repositories that are commonly used alongside this project — dependencies it builds on, tools developers pair it with, or complementary libraries in the same ecosystem. Use real, existing GitHub repos only.
 
 No text outside the JSON. No markdown fences. No preamble.`;
 
@@ -236,8 +241,13 @@ Valid JSON only:
     "skillName": "string",
     "totalLines": number,
     "fileCount": number,
-    "estimatedTriggerPhrases": ["string"]
+    "estimatedTriggerPhrases": ["string"],
+    "relatedRepos": [
+      { "name": "owner/repo", "url": "https://github.com/owner/repo", "relationship": "why this repo is related" }
+    ]
   }
 }
+
+The "relatedRepos" field should list 3-4 GitHub repositories that are commonly used alongside this project — dependencies it builds on, tools developers pair it with, or complementary libraries in the same ecosystem. Use real, existing GitHub repos only.
 
 No text outside the JSON. No markdown fences. No preamble.`;

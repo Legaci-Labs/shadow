@@ -121,7 +121,7 @@ function repairTruncatedJson(text: string): object | null {
 
   return {
     files,
-    metadata: { skillName, totalLines, fileCount: files.length, estimatedTriggerPhrases: [] },
+    metadata: { skillName, totalLines, fileCount: files.length, estimatedTriggerPhrases: [], relatedRepos: [] },
   };
 }
 

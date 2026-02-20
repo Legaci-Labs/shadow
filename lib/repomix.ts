@@ -48,17 +48,30 @@ export async function convertRepoToMarkdown(
   try {
     const { runCli } = await import("repomix");
 
-    const result = await runCli(["."], process.cwd(), {
-      remote: repoUrl,
-      output: outputPath,
-      style: "markdown",
-      compress: true,
-      removeComments: true,
-      removeEmptyLines: true,
-      truncateBase64: true,
-      ignore: IGNORE_PATTERNS,
-      quiet: true,
-    });
+    let result;
+    try {
+      result = await runCli(["."], process.cwd(), {
+        remote: repoUrl,
+        output: outputPath,
+        style: "markdown",
+        compress: true,
+        removeComments: true,
+        removeEmptyLines: true,
+        truncateBase64: true,
+        ignore: IGNORE_PATTERNS,
+        quiet: true,
+      });
+    } catch (err) {
+      let msg: string;
+      if (err instanceof Error) {
+        msg = err.message;
+      } else if (typeof err === "object" && err !== null) {
+        msg = JSON.stringify(err).slice(0, 500);
+      } else {
+        msg = String(err);
+      }
+      throw new Error(`Repomix failed: ${msg}`);
+    }
 
     let markdown = await readFile(outputPath, "utf-8");
     const rawTokens =

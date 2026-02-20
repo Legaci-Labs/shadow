@@ -18,6 +18,11 @@ interface SkillMetadata {
   totalLines: number;
   fileCount: number;
   estimatedTriggerPhrases: string[];
+  relatedRepos?: Array<{
+    name: string;
+    url: string;
+    relationship: string;
+  }>;
 }
 
 interface SkillPreviewProps {

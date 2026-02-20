@@ -133,7 +133,7 @@ function repairTruncatedJson(text: string): object | null {
 
   return {
     files,
-    metadata: { skillName, totalLines, fileCount: files.length, estimatedTriggerPhrases: [] },
+    metadata: { skillName, totalLines, fileCount: files.length, estimatedTriggerPhrases: [], relatedRepos: [] },
   };
 }
 
@@ -157,7 +157,7 @@ export async function POST(req: Request) {
         try {
           repomixResult = await convertRepoToMarkdown(repoUrl);
         } catch (err) {
-          const message = err instanceof Error ? err.message : "Unknown error";
+          const message = err instanceof Error ? err.message : String(err);
           sendEvent(controller, "error", { message: `Failed to process repository: ${message}` });
           controller.close();
           return;
