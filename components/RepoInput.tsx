@@ -4,10 +4,8 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-type SubmitMode = "quick" | "refine";
-
 interface RepoInputProps {
-  onSubmit: (url: string, mode: SubmitMode) => void;
+  onSubmit: (url: string) => void;
   disabled?: boolean;
 }
 
@@ -44,20 +42,20 @@ export function RepoInput({ onSubmit, disabled }: RepoInputProps) {
     return null;
   };
 
-  const handleSubmit = (mode: SubmitMode) => {
+  const handleSubmit = () => {
     const err = validate();
     if (err) {
       setError(err);
       return;
     }
     setError("");
-    onSubmit(normalizeUrl(url), mode);
+    onSubmit(normalizeUrl(url));
   };
 
   const handleExampleClick = (name: string) => {
     setUrl(name);
     setError("");
-    onSubmit(`https://github.com/${name}`, "quick");
+    onSubmit(`https://github.com/${name}`);
   };
 
   return (
@@ -65,7 +63,7 @@ export function RepoInput({ onSubmit, disabled }: RepoInputProps) {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          handleSubmit("quick");
+          handleSubmit();
         }}
         className="flex gap-3"
       >
@@ -80,30 +78,18 @@ export function RepoInput({ onSubmit, disabled }: RepoInputProps) {
           className="flex-1 font-mono text-sm"
           autoFocus
         />
+        <Button
+          type="submit"
+          disabled={disabled || !url.trim()}
+          size="lg"
+        >
+          Generate
+        </Button>
       </form>
 
       {error && (
         <p className="text-destructive text-sm mt-2">{error}</p>
       )}
-
-      {/* Action buttons */}
-      <div className="mt-4 flex items-center justify-center gap-3">
-        <Button
-          onClick={() => handleSubmit("quick")}
-          disabled={disabled || !url.trim()}
-          size="lg"
-        >
-          Quick
-        </Button>
-        <Button
-          onClick={() => handleSubmit("refine")}
-          disabled={disabled || !url.trim()}
-          size="lg"
-          variant="secondary"
-        >
-          Custom
-        </Button>
-      </div>
 
       <div className="mt-6 flex items-center justify-center gap-2 text-sm text-muted-foreground">
         <span>Try:</span>

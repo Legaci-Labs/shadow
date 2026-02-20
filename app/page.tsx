@@ -2,41 +2,11 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { RepoInput } from "@/components/RepoInput";
-import { ClarifyingQuestions } from "@/components/ClarifyingQuestions";
 import { SkillPreview } from "@/components/SkillPreview";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
 
-type AppState = "input" | "processing" | "questions" | "generating" | "result";
-
-interface AnalysisData {
-  analysis: {
-    summary: string;
-    language: string;
-    framework: string | null;
-    projectType: string;
-    apiSurface: Array<{ name: string; type: string; description: string }>;
-    workflows: Array<{ name: string; steps: string }>;
-    concepts: string[];
-    integrations: string[];
-    configPatterns: string[];
-  };
-  questions: Array<{
-    id: string;
-    question: string;
-    options: string[] | null;
-    multiSelect: boolean;
-  }>;
-  recommendedArchitecture: {
-    type: string;
-    files: Array<{ name: string; purpose: string }>;
-  };
-  repoMarkdown: string;
-  repomixMeta: {
-    tokenCount: number;
-    fileCount: number;
-  };
-}
+type AppState = "input" | "processing" | "result";
 
 interface SkillData {
   files: Array<{ path: string; content: string }>;
@@ -66,7 +36,6 @@ export default function Home() {
   const [state, setState] = useState<AppState>("input");
   const [error, setError] = useState<string | null>(null);
   const [skillData, setSkillData] = useState<SkillData | null>(null);
-  const [analysisData, setAnalysisData] = useState<AnalysisData | null>(null);
   const [status, setStatus] = useState<StatusInfo>({
     stage: "cloning",
     message: "Cloning repository...",
@@ -95,74 +64,7 @@ export default function Home() {
     }
   }, [streamedText, state]);
 
-  // ── SSE helpers ──
-  const handleSSEEvent = useCallback((event: string, data: Record<string, unknown>, errorFallbackState: AppState = "input") => {
-    switch (event) {
-      case "status":
-        setStatus({
-          stage: data.stage as string,
-          message: data.message as string,
-          fileCount: data.fileCount as number | undefined,
-          tokenCount: data.tokenCount as number | undefined,
-        });
-        break;
-      case "chunk":
-        streamBufferRef.current += data.text as string;
-        setStreamedText(streamBufferRef.current);
-        break;
-      case "complete":
-        setSkillData(data as unknown as SkillData);
-        setState("result");
-        break;
-      case "error":
-        setError(data.message as string);
-        setState(errorFallbackState);
-        break;
-    }
-  }, []);
-
-  const readSSEStream = useCallback(async (res: Response, fallbackState: AppState) => {
-    const reader = res.body?.getReader();
-    if (!reader) throw new Error("No response stream");
-
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let gotComplete = false;
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-
-      let eventType = "";
-      for (const line of lines) {
-        if (line.startsWith("event: ")) {
-          eventType = line.slice(7);
-        } else if (line.startsWith("data: ") && eventType) {
-          try {
-            const data = JSON.parse(line.slice(6));
-            if (eventType === "complete" || eventType === "error") gotComplete = true;
-            handleSSEEvent(eventType, data, fallbackState);
-          } catch {
-            // Skip malformed
-          }
-          eventType = "";
-        }
-      }
-    }
-
-    // Stream ended without a complete/error event — connection was dropped
-    if (!gotComplete) {
-      setError("Connection lost. The server may have timed out. Please try again.");
-      setState(fallbackState);
-    }
-  }, [handleSSEEvent]);
-
-  // ── Quick Generate (SSE streaming, single call) ──
-  const handleQuickGenerate = useCallback(async (repoUrl: string) => {
+  const handleSubmit = useCallback(async (repoUrl: string) => {
     setState("processing");
     setError(null);
     setSkillData(null);
@@ -190,50 +92,13 @@ export default function Home() {
         throw new Error(msg);
       }
 
-      await readSSEStream(res, "input");
-    } catch (err) {
-      if ((err as Error).name === "AbortError") return;
-      setError(err instanceof Error ? err.message : "Something went wrong");
-      setState("input");
-    }
-  }, [readSSEStream]);
-
-  // ── Refine flow (2-step: analyze via SSE → questions → generate) ──
-  const handleRefine = useCallback(async (repoUrl: string) => {
-    setState("processing");
-    setError(null);
-    setSkillData(null);
-    setAnalysisData(null);
-    setStreamedText("");
-    setDisplayedText("");
-    streamBufferRef.current = "";
-    lastFlushedRef.current = 0;
-    setStatus({ stage: "cloning", message: "Cloning repository..." });
-
-    const abort = new AbortController();
-    abortRef.current = abort;
-
-    try {
-      const analyzeRes = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repoUrl }),
-        signal: abort.signal,
-      });
-
-      if (!analyzeRes.ok) {
-        const text = await analyzeRes.text();
-        let msg = "Analysis failed";
-        try { msg = JSON.parse(text).error || msg; } catch { msg = text.slice(0, 200) || msg; }
-        throw new Error(msg);
-      }
-
-      // Read SSE stream from analyze endpoint
-      const reader = analyzeRes.body?.getReader();
+      // Read SSE stream
+      const reader = res.body?.getReader();
       if (!reader) throw new Error("No response stream");
 
       const decoder = new TextDecoder();
       let buffer = "";
+      let gotComplete = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -250,19 +115,29 @@ export default function Home() {
           } else if (line.startsWith("data: ") && eventType) {
             try {
               const data = JSON.parse(line.slice(6));
-              if (eventType === "status") {
-                setStatus({
-                  stage: data.stage as string,
-                  message: data.message as string,
-                  fileCount: data.fileCount as number | undefined,
-                  tokenCount: data.tokenCount as number | undefined,
-                });
-              } else if (eventType === "complete") {
-                setAnalysisData(data as AnalysisData);
-                setState("questions");
-              } else if (eventType === "error") {
-                setError(data.message as string);
-                setState("input");
+              switch (eventType) {
+                case "status":
+                  setStatus({
+                    stage: data.stage as string,
+                    message: data.message as string,
+                    fileCount: data.fileCount as number | undefined,
+                    tokenCount: data.tokenCount as number | undefined,
+                  });
+                  break;
+                case "chunk":
+                  streamBufferRef.current += data.text as string;
+                  setStreamedText(streamBufferRef.current);
+                  break;
+                case "complete":
+                  gotComplete = true;
+                  setSkillData(data as unknown as SkillData);
+                  setState("result");
+                  break;
+                case "error":
+                  gotComplete = true;
+                  setError(data.message as string);
+                  setState("input");
+                  break;
               }
             } catch {
               // Skip malformed
@@ -271,6 +146,11 @@ export default function Home() {
           }
         }
       }
+
+      if (!gotComplete) {
+        setError("Connection lost. The server may have timed out. Please try again.");
+        setState("input");
+      }
     } catch (err) {
       if ((err as Error).name === "AbortError") return;
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -278,75 +158,16 @@ export default function Home() {
     }
   }, []);
 
-  const handleAnswersSubmit = useCallback(
-    async (answers: Record<string, string>) => {
-      if (!analysisData) return;
-
-      setState("generating");
-      setError(null);
-      setStreamedText("");
-      setDisplayedText("");
-      streamBufferRef.current = "";
-      lastFlushedRef.current = 0;
-      setStatus({ stage: "generating", message: "Generating skill files..." });
-
-      const abort = new AbortController();
-      abortRef.current = abort;
-
-      try {
-        const res = await fetch("/api/generate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            analysis: analysisData.analysis,
-            answers,
-            repoMarkdown: analysisData.repoMarkdown,
-          }),
-          signal: abort.signal,
-        });
-
-        if (!res.ok) {
-          const text = await res.text();
-          let msg = "Generation failed";
-          try { msg = JSON.parse(text).error || msg; } catch { msg = text.slice(0, 200) || msg; }
-          throw new Error(msg);
-        }
-
-        await readSSEStream(res, "questions");
-      } catch (err) {
-        if ((err as Error).name === "AbortError") return;
-        setError(err instanceof Error ? err.message : "Something went wrong");
-        setState("questions");
-      }
-    },
-    [analysisData, readSSEStream]
-  );
-
-  // ── Submit handler dispatches to quick or refine ──
-  const handleSubmit = useCallback(
-    (repoUrl: string, mode: "quick" | "refine") => {
-      if (mode === "quick") {
-        handleQuickGenerate(repoUrl);
-      } else {
-        handleRefine(repoUrl);
-      }
-    },
-    [handleQuickGenerate, handleRefine]
-  );
-
   const handleReset = () => {
     abortRef.current?.abort();
     setState("input");
     setError(null);
     setSkillData(null);
-    setAnalysisData(null);
     setStreamedText("");
     setDisplayedText("");
     streamBufferRef.current = "";
     lastFlushedRef.current = 0;
   };
-
-  const isStreaming = state === "processing" || state === "generating";
 
   return (
     <main className="min-h-screen">
@@ -401,8 +222,8 @@ export default function Home() {
           </div>
         )}
 
-        {/* State: Processing / Generating (with live stream preview) */}
-        {isStreaming && (
+        {/* State: Processing (with live stream preview) */}
+        {state === "processing" && (
           <div className="flex gap-6 min-h-[600px]">
             {/* Left: Status */}
             <div className="w-64 shrink-0 flex flex-col items-center pt-12 gap-5">
@@ -477,18 +298,6 @@ export default function Home() {
                 )}
               </div>
             </div>
-          </div>
-        )}
-
-        {/* State: Questions (refine flow) */}
-        {state === "questions" && analysisData && (
-          <div className="py-8">
-            <ClarifyingQuestions
-              analysis={analysisData.analysis}
-              questions={analysisData.questions}
-              architecture={analysisData.recommendedArchitecture}
-              onSubmit={handleAnswersSubmit}
-            />
           </div>
         )}
 
