@@ -127,6 +127,7 @@ export default function Home() {
 
     const decoder = new TextDecoder();
     let buffer = "";
+    let gotComplete = false;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -143,6 +144,7 @@ export default function Home() {
         } else if (line.startsWith("data: ") && eventType) {
           try {
             const data = JSON.parse(line.slice(6));
+            if (eventType === "complete" || eventType === "error") gotComplete = true;
             handleSSEEvent(eventType, data, fallbackState);
           } catch {
             // Skip malformed
@@ -150,6 +152,12 @@ export default function Home() {
           eventType = "";
         }
       }
+    }
+
+    // Stream ended without a complete/error event — connection was dropped
+    if (!gotComplete) {
+      setError("Connection lost. The server may have timed out. Please try again.");
+      setState(fallbackState);
     }
   }, [handleSSEEvent]);
 
