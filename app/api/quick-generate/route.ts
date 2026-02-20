@@ -196,7 +196,7 @@ export async function POST(req: Request) {
 
         sendEvent(controller, "status", {
           stage: "generating",
-          message: `Generating with ${MODEL_ID}...`,
+          message: "Zapping some code...",
         });
 
         let result = await streamGenerate(
