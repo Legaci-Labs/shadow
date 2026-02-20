@@ -28,5 +28,5 @@ export function getGeminiClient(): VertexAI {
 }
 
 export const MODEL_ID = "claude-sonnet-4-6";
-export const FALLBACK_MODEL_ID = "gemini-2.5-flash-lite-preview-09-2025";
+export const FALLBACK_MODEL_ID = "gemini-2.5-flash-lite";
 export const MODEL_TIMEOUT_MS = 30_000;

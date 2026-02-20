@@ -21,7 +21,7 @@ async function streamGenerate(
   controller: ReadableStreamDefaultController,
   timeoutMs?: number
 ): Promise<{ text: string; stopReason: string; timedOut: boolean }> {
-  const streamPromise = client.messages.stream({
+  const messageStream = client.messages.stream({
     model,
     max_tokens: 64000,
     temperature: 0.2,
@@ -29,43 +29,28 @@ async function streamGenerate(
     messages: [{ role: "user", content: userContent }],
   });
 
-  // If timeout specified, race the stream start against a timer
+  // Start collecting text immediately so no chunks are missed
+  let fullText = "";
+  messageStream.on("text", (text: string) => {
+    fullText += text;
+    sendEvent(controller, "chunk", { text, fullLength: fullText.length });
+  });
+
+  // If timeout specified, race first text chunk against a timer
   if (timeoutMs) {
+    const gotFirstChunk = new Promise<"chunk">((resolve) => {
+      messageStream.once("text", () => resolve("chunk"));
+    });
     const timeout = new Promise<"timeout">((resolve) =>
       setTimeout(() => resolve("timeout"), timeoutMs)
     );
 
-    const race = await Promise.race([
-      streamPromise.then((s: unknown) => ({ type: "stream" as const, stream: s })),
-      timeout,
-    ]);
-
+    const race = await Promise.race([gotFirstChunk, timeout]);
     if (race === "timeout") {
+      try { messageStream.abort(); } catch { /* best effort */ }
       return { text: "", stopReason: "", timedOut: true };
     }
-
-    return collectStream(race.stream, controller);
   }
-
-  const messageStream = await streamPromise;
-  return collectStream(messageStream, controller);
-}
-
-async function collectStream(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  messageStream: any,
-  controller: ReadableStreamDefaultController
-): Promise<{ text: string; stopReason: string; timedOut: boolean }> {
-  let fullText = "";
-  let firstChunkReceived = false;
-
-  messageStream.on("text", (text: string) => {
-    if (!firstChunkReceived) {
-      firstChunkReceived = true;
-    }
-    fullText += text;
-    sendEvent(controller, "chunk", { text, fullLength: fullText.length });
-  });
 
   const finalMessage = await messageStream.finalMessage();
   return {

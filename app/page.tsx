@@ -331,8 +331,7 @@ export default function Home() {
             <div className="mt-16 max-w-lg mx-auto">
               <p className="text-xs text-muted-foreground/60 leading-relaxed">
                 ShadowOSS converts any public GitHub repository into a structured
-                Claude skill file (SKILL.md + reference files) using Repomix and
-                Claude Sonnet 4.6. No signup. No paywall. Paste and go.
+                Claude skill file (SKILL.md + reference files).
               </p>
             </div>
           </div>
