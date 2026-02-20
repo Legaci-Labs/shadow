@@ -1,5 +1,17 @@
+import { convertRepoToMarkdown } from "@/lib/repomix";
 import { getVertexClient, MODEL_ID, FALLBACK_MODEL_ID, MODEL_TIMEOUT_MS } from "@/lib/vertex-client";
-import { GENERATOR_SYSTEM_PROMPT } from "@/lib/prompts";
+import { QUICK_GENERATE_SYSTEM_PROMPT } from "@/lib/prompts";
+
+function isValidGithubUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname !== "github.com") return false;
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    return parts.length >= 2;
+  } catch {
+    return false;
+  }
+}
 
 function sendEvent(
   controller: ReadableStreamDefaultController,
@@ -29,7 +41,6 @@ async function streamGenerate(
     messages: [{ role: "user", content: userContent }],
   });
 
-  // If timeout specified, race the stream start against a timer
   if (timeoutMs) {
     const timeout = new Promise<"timeout">((resolve) =>
       setTimeout(() => resolve("timeout"), timeoutMs)
@@ -57,12 +68,8 @@ async function collectStream(
   controller: ReadableStreamDefaultController
 ): Promise<{ text: string; stopReason: string; timedOut: boolean }> {
   let fullText = "";
-  let firstChunkReceived = false;
 
   messageStream.on("text", (text: string) => {
-    if (!firstChunkReceived) {
-      firstChunkReceived = true;
-    }
     fullText += text;
     sendEvent(controller, "chunk", { text, fullLength: fullText.length });
   });
@@ -113,11 +120,11 @@ function repairTruncatedJson(text: string): object | null {
 }
 
 export async function POST(req: Request) {
-  const { analysis, answers, repoMarkdown } = await req.json();
+  const { repoUrl } = await req.json();
 
-  if (!analysis || !answers || !repoMarkdown) {
+  if (!repoUrl || !isValidGithubUrl(repoUrl)) {
     return new Response(
-      JSON.stringify({ error: "Missing required fields" }),
+      JSON.stringify({ error: "Invalid GitHub URL" }),
       { status: 400, headers: { "Content-Type": "application/json" } }
     );
   }
@@ -125,25 +132,52 @@ export async function POST(req: Request) {
   const stream = new ReadableStream({
     async start(controller) {
       try {
+        // Step 1: Repomix
+        sendEvent(controller, "status", { stage: "cloning", message: "Cloning repository..." });
+
+        let repomixResult;
+        try {
+          repomixResult = await convertRepoToMarkdown(repoUrl);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Unknown error";
+          sendEvent(controller, "error", { message: `Failed to process repository: ${message}` });
+          controller.close();
+          return;
+        }
+
+        if (repomixResult.tokenCount < 1000 && repomixResult.markdown.length < 4000) {
+          sendEvent(controller, "error", { message: "Not enough source code for a useful skill." });
+          controller.close();
+          return;
+        }
+
+        sendEvent(controller, "status", {
+          stage: "packed",
+          message: `Packed ${repomixResult.fileCount} files into ${repomixResult.tokenCount.toLocaleString()} tokens`,
+          fileCount: repomixResult.fileCount,
+          tokenCount: repomixResult.tokenCount,
+          truncated: repomixResult.truncated,
+        });
+
+        // Step 2: Stream Claude generation with fallback
         const client = getVertexClient();
-        const userContent = `## Repository Analysis\n${JSON.stringify(analysis)}\n\n## User Preferences\n${JSON.stringify(answers)}\n\n## Full Repository Source (Repomix compressed markdown)\n\n---BEGIN REPO MARKDOWN---\n${repoMarkdown}\n---END REPO MARKDOWN---\n\nGenerate the complete skill architecture.`;
+        const userContent = `Here is a GitHub repository converted to structured markdown by Repomix:\n\n---BEGIN REPO MARKDOWN---\n${repomixResult.markdown}\n---END REPO MARKDOWN---\n\nAnalyze this repository and generate the complete skill architecture.`;
 
         sendEvent(controller, "status", {
           stage: "generating",
           message: `Generating with ${MODEL_ID}...`,
         });
 
-        // Try primary model with timeout
         let result = await streamGenerate(
           client,
           MODEL_ID,
-          GENERATOR_SYSTEM_PROMPT,
+          QUICK_GENERATE_SYSTEM_PROMPT,
           userContent,
           controller,
           MODEL_TIMEOUT_MS
         );
 
-        // Fallback if timed out
+        // Fallback if primary timed out
         if (result.timedOut) {
           sendEvent(controller, "status", {
             stage: "generating",
@@ -153,13 +187,13 @@ export async function POST(req: Request) {
           result = await streamGenerate(
             client,
             FALLBACK_MODEL_ID,
-            GENERATOR_SYSTEM_PROMPT,
+            QUICK_GENERATE_SYSTEM_PROMPT,
             userContent,
             controller
           );
         }
 
-        // Parse result
+        // Parse
         let parsed;
         try {
           parsed = JSON.parse(result.text);
@@ -173,9 +207,7 @@ export async function POST(req: Request) {
         }
 
         if (!parsed) {
-          sendEvent(controller, "error", {
-            message: "Failed to parse skill output. Try a smaller repository.",
-          });
+          sendEvent(controller, "error", { message: "Failed to parse skill output. Try a smaller repository." });
           controller.close();
           return;
         }

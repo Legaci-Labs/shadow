@@ -4,8 +4,10 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
+type SubmitMode = "quick" | "refine";
+
 interface RepoInputProps {
-  onSubmit: (url: string) => void;
+  onSubmit: (url: string, mode: SubmitMode) => void;
   disabled?: boolean;
 }
 
@@ -36,29 +38,37 @@ export function RepoInput({ onSubmit, disabled }: RepoInputProps) {
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!url.trim()) {
-      setError("Enter a GitHub repository URL");
-      return;
-    }
-    if (!isValidGithubUrl(url)) {
-      setError("Enter a valid GitHub repo (e.g. owner/repo)");
+  const validate = (): string | null => {
+    if (!url.trim()) return "Enter a GitHub repository URL";
+    if (!isValidGithubUrl(url)) return "Enter a valid GitHub repo (e.g. owner/repo)";
+    return null;
+  };
+
+  const handleSubmit = (mode: SubmitMode) => {
+    const err = validate();
+    if (err) {
+      setError(err);
       return;
     }
     setError("");
-    onSubmit(normalizeUrl(url));
+    onSubmit(normalizeUrl(url), mode);
   };
 
   const handleExampleClick = (name: string) => {
     setUrl(name);
     setError("");
-    onSubmit(`https://github.com/${name}`);
+    onSubmit(`https://github.com/${name}`, "quick");
   };
 
   return (
     <div className="w-full max-w-2xl mx-auto">
-      <form onSubmit={handleSubmit} className="flex gap-3">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          handleSubmit("quick");
+        }}
+        className="flex gap-3"
+      >
         <Input
           value={url}
           onChange={(e) => {
@@ -70,16 +80,32 @@ export function RepoInput({ onSubmit, disabled }: RepoInputProps) {
           className="flex-1 font-mono text-sm"
           autoFocus
         />
-        <Button type="submit" disabled={disabled || !url.trim()} size="lg">
-          Forge Skill
-        </Button>
       </form>
 
       {error && (
         <p className="text-destructive text-sm mt-2">{error}</p>
       )}
 
-      <div className="mt-6 flex items-center gap-2 text-sm text-muted-foreground">
+      {/* Action buttons */}
+      <div className="mt-4 flex items-center justify-center gap-3">
+        <Button
+          onClick={() => handleSubmit("quick")}
+          disabled={disabled || !url.trim()}
+          size="lg"
+        >
+          Make it Quick
+        </Button>
+        <Button
+          onClick={() => handleSubmit("refine")}
+          disabled={disabled || !url.trim()}
+          size="lg"
+          variant="secondary"
+        >
+          Let&apos;s refine this
+        </Button>
+      </div>
+
+      <div className="mt-6 flex items-center justify-center gap-2 text-sm text-muted-foreground">
         <span>Try:</span>
         {EXAMPLE_REPOS.map((repo) => (
           <button

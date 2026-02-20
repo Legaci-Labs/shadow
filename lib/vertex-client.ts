@@ -15,3 +15,5 @@ export function getVertexClient(): AnthropicVertex {
 }
 
 export const MODEL_ID = "claude-sonnet-4-6";
+export const FALLBACK_MODEL_ID = "claude-haiku-4-5-20251001";
+export const MODEL_TIMEOUT_MS = 30_000;

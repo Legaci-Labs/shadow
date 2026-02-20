@@ -29,6 +29,7 @@ interface SkillPreviewProps {
 export function SkillPreview({ files, metadata, onReset }: SkillPreviewProps) {
   const [selectedFile, setSelectedFile] = useState(files[0]?.path ?? "");
   const [viewMode, setViewMode] = useState<"preview" | "raw">("preview");
+  const [copied, setCopied] = useState(false);
 
   const currentFile = files.find((f) => f.path === selectedFile);
 
@@ -36,6 +37,8 @@ export function SkillPreview({ files, metadata, onReset }: SkillPreviewProps) {
     const skillFile = files.find((f) => f.path === "SKILL.md");
     if (skillFile) {
       await navigator.clipboard.writeText(skillFile.content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
   };
 
@@ -51,7 +54,7 @@ export function SkillPreview({ files, metadata, onReset }: SkillPreviewProps) {
         </div>
         <div className="flex gap-2">
           <Button variant="secondary" size="sm" onClick={handleCopy}>
-            Copy SKILL.md
+            {copied ? "Copied!" : "Copy SKILL.md"}
           </Button>
           <DownloadButton files={files} skillName={metadata.skillName} />
           <Button variant="ghost" size="sm" onClick={onReset}>
