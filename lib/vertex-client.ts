@@ -17,7 +17,7 @@ export async function getVertexClient(): Promise<AnthropicVertex> {
     };
     return new AnthropicVertex({
       projectId: process.env.GOOGLE_CLOUD_PROJECT_ID!,
-      region: process.env.GOOGLE_CLOUD_REGION ?? "global",
+      region: process.env.GOOGLE_CLOUD_REGION ?? "us-east5",
       accessToken,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       authClient: noopAuthClient as any,
@@ -28,7 +28,7 @@ export async function getVertexClient(): Promise<AnthropicVertex> {
     ensureVertexCredentials();
     _localClient = new AnthropicVertex({
       projectId: process.env.GOOGLE_CLOUD_PROJECT_ID!,
-      region: process.env.GOOGLE_CLOUD_REGION ?? "global",
+      region: process.env.GOOGLE_CLOUD_REGION ?? "us-east5",
     });
   }
   return _localClient;
