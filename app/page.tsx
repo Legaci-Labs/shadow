@@ -190,7 +190,7 @@ export default function Home() {
     }
   }, [readSSEStream]);
 
-  // ── Refine flow (2-step: analyze → questions → generate) ──
+  // ── Refine flow (2-step: analyze via SSE → questions → generate) ──
   const handleRefine = useCallback(async (repoUrl: string) => {
     setState("processing");
     setError(null);
@@ -202,11 +202,15 @@ export default function Home() {
     lastFlushedRef.current = 0;
     setStatus({ stage: "cloning", message: "Cloning repository..." });
 
+    const abort = new AbortController();
+    abortRef.current = abort;
+
     try {
       const analyzeRes = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ repoUrl }),
+        signal: abort.signal,
       });
 
       if (!analyzeRes.ok) {
@@ -216,10 +220,51 @@ export default function Home() {
         throw new Error(msg);
       }
 
-      const data: AnalysisData = await analyzeRes.json();
-      setAnalysisData(data);
-      setState("questions");
+      // Read SSE stream from analyze endpoint
+      const reader = analyzeRes.body?.getReader();
+      if (!reader) throw new Error("No response stream");
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        let eventType = "";
+        for (const line of lines) {
+          if (line.startsWith("event: ")) {
+            eventType = line.slice(7);
+          } else if (line.startsWith("data: ") && eventType) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (eventType === "status") {
+                setStatus({
+                  stage: data.stage as string,
+                  message: data.message as string,
+                  fileCount: data.fileCount as number | undefined,
+                  tokenCount: data.tokenCount as number | undefined,
+                });
+              } else if (eventType === "complete") {
+                setAnalysisData(data as AnalysisData);
+                setState("questions");
+              } else if (eventType === "error") {
+                setError(data.message as string);
+                setState("input");
+              }
+            } catch {
+              // Skip malformed
+            }
+            eventType = "";
+          }
+        }
+      }
     } catch (err) {
+      if ((err as Error).name === "AbortError") return;
       setError(err instanceof Error ? err.message : "Something went wrong");
       setState("input");
     }
