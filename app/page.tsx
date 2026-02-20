@@ -176,8 +176,10 @@ export default function Home() {
       });
 
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Request failed");
+        const text = await res.text();
+        let msg = "Request failed";
+        try { msg = JSON.parse(text).error || msg; } catch { msg = text.slice(0, 200) || msg; }
+        throw new Error(msg);
       }
 
       await readSSEStream(res, "input");
@@ -208,8 +210,10 @@ export default function Home() {
       });
 
       if (!analyzeRes.ok) {
-        const err = await analyzeRes.json();
-        throw new Error(err.error || "Analysis failed");
+        const text = await analyzeRes.text();
+        let msg = "Analysis failed";
+        try { msg = JSON.parse(text).error || msg; } catch { msg = text.slice(0, 200) || msg; }
+        throw new Error(msg);
       }
 
       const data: AnalysisData = await analyzeRes.json();
@@ -249,8 +253,10 @@ export default function Home() {
         });
 
         if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.error || "Generation failed");
+          const text = await res.text();
+          let msg = "Generation failed";
+          try { msg = JSON.parse(text).error || msg; } catch { msg = text.slice(0, 200) || msg; }
+          throw new Error(msg);
         }
 
         await readSSEStream(res, "questions");
